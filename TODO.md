@@ -1,0 +1,3 @@
+GetTodaysEvents
+GetTomorrowsEvents
+GetWeeksEvents

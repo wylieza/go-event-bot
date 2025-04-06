@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -15,25 +17,44 @@ const (
 )
 
 type Event struct {
-	Type EventType
-	Text string
-	Date time.Time
+	Type EventType `json:"type"`
+	Text string    `json:"text"`
+	Date time.Time `json:"date"`
 }
 
 func main() {
-	var calendar [366][]Event
+	var calendar []Event
 	_ = calendar
 
-	msg := "Birthday \"Joe Soap\" 9/5/1990"
-	bDate, parsingErr := ParseDateFromMsg(msg)
-	if parsingErr == nil {
-		fmt.Println(bDate)
-	} else {
-		fmt.Println("error! ", parsingErr)
+	var msgs []string = []string{"Birthday \"Joe Soap\" 9/5/1990", "Birthday \"Chicken Lick'n\" 1/22/2000", "Birthday \"Howzit Brew\" 02/13/1995", "Birthday \"Another Day\" 02/14/1995"}
+
+	for _, msg := range msgs {
+		event, err := EventFromMsg(msg)
+		if err != nil {
+			fmt.Println(err)
+			continue
+		}
+		AddEvent(&calendar, event)
+		fmt.Println(event)
 	}
 
-	fmt.Println("Event type: ", ParseEventTypeFromMsg(msg))
+	_ = ExportEventsToFile(&calendar, "events-store")
+}
 
+func EventFromMsg(msg string) (Event, error) {
+	eventDate, dateParsingErr := ParseDateFromMsg(msg)
+	if dateParsingErr != nil {
+		return Event{}, dateParsingErr
+	}
+
+	eventText, textParsingErr := ParseTextFromMsg(msg)
+	if textParsingErr != nil {
+		return Event{}, textParsingErr
+	}
+
+	eventType := ParseEventTypeFromMsg(msg)
+
+	return Event{Type: eventType, Text: eventText, Date: eventDate}, nil
 }
 
 func ParseEventTypeFromMsg(msg string) EventType {
@@ -50,9 +71,17 @@ func ParseEventTypeFromMsg(msg string) EventType {
 	return Generic
 }
 
-func ParseTextFromMsg(msg string) string {
+func ParseTextFromMsg(msg string) (string, error) {
 	// Extract the 'text' component from a message
-	return ""
+	r := regexp.MustCompile(`"([^"]*)"`)
+
+	matches := r.FindStringSubmatch(msg)
+
+	if matches == nil {
+		return "", fmt.Errorf("No 'text' component found!")
+	}
+
+	return matches[1], nil
 }
 
 func ParseDateFromMsg(msg string) (time.Time, error) {
@@ -62,10 +91,6 @@ func ParseDateFromMsg(msg string) (time.Time, error) {
 	matches := r.FindStringSubmatch(msg)
 	if matches == nil {
 		return time.Time{}, fmt.Errorf("failed to parse DD/MM/YYYY")
-	}
-
-	if len(matches) != 4 {
-		return time.Time{}, fmt.Errorf("multiple dates found")
 	}
 
 	day, dayCnvErr := strconv.Atoi(matches[1])
@@ -80,7 +105,25 @@ func ParseDateFromMsg(msg string) (time.Time, error) {
 	return date, nil
 }
 
-func AddEvent(calendar *[366][]Event, event Event) {
-	dayOfYear := event.Date.YearDay()
-	calendar[dayOfYear-1] = append(calendar[dayOfYear-1], event)
+func AddEvent(calendar *[]Event, event Event) {
+	*calendar = append(*calendar, event)
+}
+
+func ExportEventsToFile(calendar *[]Event, fileName string) error {
+	exportFile, err := os.Create(fileName + ".json")
+	if err != nil {
+		return fmt.Errorf("could not create export file")
+	}
+	defer exportFile.Close()
+
+	jsonEncoder := json.NewEncoder(exportFile)
+	jsonEncoder.SetIndent("", "    ")
+
+	for _, event := range *calendar {
+		encodeErr := jsonEncoder.Encode(event)
+		if encodeErr != nil {
+			fmt.Println("encoding error for event:", event)
+		}
+	}
+	return nil
 }
