@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -26,7 +27,7 @@ func main() {
 	var calendar []Event
 	_ = calendar
 
-	var msgs []string = []string{"Birthday \"Joe Soap\" 9/5/1990", "Birthday \"Chicken Lick'n\" 1/22/2000", "Birthday \"Howzit Brew\" 02/13/1995", "Birthday \"Another Day\" 02/14/1995"}
+	var msgs []string = []string{"Birthday \"Leap Frog\" 29/2/2024", "Birthday \"Joe Soap\" 9/5/1990", "Birthday \"Chicken Lick'n\" 1/22/2000", "Birthday \"Howzit Brew\" 02/13/1995", "Birthday \"Another Day\" 02/14/1995"}
 
 	for _, msg := range msgs {
 		event, err := EventFromMsg(msg)
@@ -39,6 +40,12 @@ func main() {
 	}
 
 	_ = ExportEventsToFile(&calendar, "events-store")
+
+	upcoming := GetUpcomingEvents(calendar, time.Date(1901, 2, 22, 0, 0, 0, 0, time.UTC), 7)
+	fmt.Println("upcoming:")
+	for _, event := range upcoming {
+		fmt.Println(event)
+	}
 }
 
 func EventFromMsg(msg string) (Event, error) {
@@ -101,6 +108,7 @@ func ParseDateFromMsg(msg string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("invalid date provided!")
 	}
 
+	// TODO: catch invalid dates with exception
 	date := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
 	return date, nil
 }
@@ -126,4 +134,56 @@ func ExportEventsToFile(calendar *[]Event, fileName string) error {
 		}
 	}
 	return nil
+}
+
+func SortCalendar(calendar []Event) []Event {
+	sort.Slice(calendar, func(i, j int) bool {
+		return calendar[i].Date.Before(calendar[j].Date)
+	})
+	return calendar
+}
+
+func GetTodaysEvents(calendar []Event) []Event {
+	currentDay := time.Now().Truncate(24 * time.Hour) // cuts precision to date-only
+	var todaysEvents []Event
+
+	for _, event := range calendar {
+		eventDay := event.Date.Truncate(24 * time.Hour)
+		if eventDay == currentDay {
+			todaysEvents = append(todaysEvents, event)
+		}
+	}
+
+	return todaysEvents
+}
+
+func GetForwardDistanceInDays(sourceDate time.Time, futureDate time.Time) int {
+	// ensure leap year is dealt with, by setting the year to be identical (source date year is used)
+	// TODO: this probably falls apart with wrap-around, but not going to deal with that now.
+	yearDifference := sourceDate.Year() - futureDate.Year()
+	futureDate = futureDate.AddDate(yearDifference, 0, 0)
+
+	sourceOrdinalDay := sourceDate.YearDay()
+	otherOrdinalDay := futureDate.YearDay()
+	lastOrdinalDay := time.Date(sourceDate.Year(), 12, 31, 0, 0, 0, 0, time.UTC).YearDay()
+
+	forwardDistanceDays := (otherOrdinalDay - sourceOrdinalDay)
+	if forwardDistanceDays < 0 {
+		forwardDistanceDays = forwardDistanceDays + lastOrdinalDay
+	}
+
+	return forwardDistanceDays
+}
+
+func GetUpcomingEvents(calendar []Event, startDate time.Time, daysAhead int) []Event {
+	var upcomingEvents []Event
+
+	for _, event := range calendar {
+		if GetForwardDistanceInDays(startDate, event.Date) <= daysAhead {
+			upcomingEvents = append(upcomingEvents, event)
+		}
+	}
+
+	upcomingEvents = SortCalendar(upcomingEvents)
+	return upcomingEvents
 }
